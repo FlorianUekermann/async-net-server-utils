@@ -1,12 +1,12 @@
 use anyhow::{anyhow, bail};
-use futures_lite::AsyncBufReadExt;
-use futures_util::io::BufReader;
-use futures_util::stream::FuturesUnordered;
-use futures_util::{AsyncBufRead, AsyncRead, AsyncWrite, Stream, StreamExt};
-use http::{header::HeaderName, HeaderValue, Method, Request, Uri, Version};
-use std::future::Future;
+use futures::io::BufReader;
+use futures::prelude::*;
+use futures::stream::FuturesUnordered;
+use http::{header::HeaderName, HeaderValue, Method, Request, Response, Uri, Version};
+use std::io::Write;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::convert::identity;
 
 pub struct HttpIncoming<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO>> {
     incoming: T,
@@ -70,7 +70,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> Future for HttpDecode<IO> {
                         let off = self.len;
                         self.buffer[off..off + n].copy_from_slice(&transport.buffer()[0..n]);
                         self.len += n;
-                        transport.consume(n);
+                        transport.consume_unpin(n);
                         if self.buffer[0..self.len].ends_with(b"\r\n\r\n") {
                             match http_request_parse(&self.buffer[0..self.len], transport) {
                                 Ok(request) => return Poll::Ready(Ok(request)),
@@ -122,4 +122,62 @@ pub fn http_request_parse<T>(buffer: &[u8], body: T) -> anyhow::Result<Request<T
         );
     }
     Ok(request)
+}
+
+pub fn http_response_write<IO: AsyncRead + AsyncWrite + Unpin>(
+    response: Response<IO>,
+) -> HttpEncode<IO> {
+    let (parts, transport) = response.into_parts();
+    let response = Response::from_parts(parts, ());
+    let transport = Some(transport);
+    let is_err = response
+        .headers()
+        .iter()
+        .map(|(_, v)| v.to_str().is_err())
+        .any(identity);
+    let (buffer, err) = if is_err {
+            let mut buffer = Vec::<u8>::with_capacity(8192);
+            writeln!(buffer, "{:?} {}\r", response.version(), response.status()).unwrap();
+            for (k, v) in response.headers() {
+                writeln!(buffer, "{}: {}\r", k, v.to_str().unwrap()).unwrap();
+            }
+            writeln!(buffer, "\r").unwrap();
+        (buffer, None)
+    } else {
+        (Vec::new(),  Some(       anyhow::Error::msg("invalid character in header value")))
+
+    };
+    HttpEncode { transport, buffer, off: 0, err}
+}
+
+pub struct HttpEncode<IO: AsyncRead + AsyncWrite + Unpin> {
+    transport: Option<IO>,
+    buffer: Vec<u8>,
+    off: usize,
+    err: Option<anyhow::Error>,
+}
+
+impl<IO: AsyncRead + AsyncWrite + Unpin> Future for HttpEncode<IO> {
+    type Output = anyhow::Result<IO>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut transport = match self.transport.take() {
+            Some(transport) => transport,
+            None => panic!("future polled after returning ready"),
+        };
+        if let Some(err) = self.err.take() {
+            return Poll::Ready(Err(err))
+        }
+        while self.buffer.len() < self.off {
+            match Pin::new(&mut transport).poll_write(cx, &self.buffer[self.off..]) {
+                Poll::Ready(Ok(n)) => self.off += n,
+                Poll::Ready(Err(err)) => return Poll::Ready(Err(err.into())),
+                Poll::Pending => {
+                    self.transport = Some(transport);
+                    return Poll::Pending;
+                }
+            };
+        }
+        Poll::Ready(Ok(transport))
+    }
 }

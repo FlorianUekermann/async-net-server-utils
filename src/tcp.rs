@@ -2,7 +2,8 @@ use crate::http::HttpIncoming;
 use crate::tls::{TlsAcceptor, TlsIncoming};
 use async_io::{Async, ReadableOwned};
 use async_net::TcpStream;
-use futures_lite::prelude::*;
+use futures::prelude::*;
+use futures::FutureExt;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -34,7 +35,7 @@ impl Stream for TcpIncoming {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let listener = self.listener.clone();
         loop {
-            match Box::pin(listener.accept()).poll(cx) {
+            match Box::pin(listener.accept()).poll_unpin(cx) {
                 Poll::Ready(result) => match result {
                     Ok((stream, _)) => return Poll::Ready(Some(stream.into())),
                     Err(err) => log::error!("tcp accept error: {:?}", err),
