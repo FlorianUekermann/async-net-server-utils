@@ -12,7 +12,7 @@ use std::task::{Context, Poll};
 pub struct TlsIncoming<A: TlsAcceptor> {
     tcp_incoming: TcpIncoming,
     tls_acceptor: A,
-    accepts: FuturesUnordered<A::Accept<TcpStream>>,
+    accepts: FuturesUnordered<A::Accept>,
 }
 
 impl<A: TlsAcceptor> TlsIncoming<A> {
@@ -47,25 +47,23 @@ impl<A: TlsAcceptor> Stream for TlsIncoming<A> {
 }
 
 pub trait TlsAcceptor: Unpin {
-    type Accept<IO: AsyncRead + AsyncWrite + Unpin>: Future<
-        Output = io::Result<async_rustls::server::TlsStream<IO>>,
-    >;
+    type Accept: Future<Output = io::Result<TlsStream<TcpStream>>>;
 
-    fn accept<IO: AsyncRead + AsyncWrite + Unpin>(&self, stream: IO) -> Self::Accept<IO>;
+    fn accept(&self, stream: TcpStream) -> Self::Accept;
 }
 
 impl TlsAcceptor for async_rustls::TlsAcceptor {
-    type Accept<IO: AsyncRead + AsyncWrite + Unpin> = async_rustls::Accept<IO>;
+    type Accept = async_rustls::Accept<TcpStream>;
 
-    fn accept<IO: AsyncRead + AsyncWrite + Unpin>(&self, stream: IO) -> Self::Accept<IO> {
+    fn accept(&self, stream: TcpStream) -> Self::Accept {
         self.accept(stream)
     }
 }
 
 impl TlsAcceptor for rustls_acme::TlsAcceptor {
-    type Accept<IO: AsyncRead + AsyncWrite + Unpin> = rustls_acme::Accept<IO>;
+    type Accept = rustls_acme::Accept<TcpStream>;
 
-    fn accept<IO: AsyncRead + AsyncWrite + Unpin>(&self, stream: IO) -> Self::Accept<IO> {
+    fn accept(&self, stream: TcpStream) -> Self::Accept {
         self.accept(stream)
     }
 }
