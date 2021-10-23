@@ -4,14 +4,12 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-async-tungstenite = "0.15.0"
 async-net = "1.6.1"
 async-io = "1.6.0"
 async-rustls = "0.2.0"
 log = "0.4.14"
 rustls-acme = "0.2.0"
 futures = "0.3.17"
-httparse = "1.5.1"
 anyhow = "1.0.44"
 http = "0.2.5"
-pin-project = "1.0.8"
+async-http-codec = { git = "https://github.com/FlorianUekermann/async-http-codec" }
