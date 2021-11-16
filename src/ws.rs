@@ -10,5 +10,5 @@ pub enum WsOrHttp<IO: AsyncRead + AsyncWrite + Unpin> {
 
 pub struct WsOrHttpIncoming<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = Request<IO>>> {
     _incoming: T,
-    _upgrading: FuturesUnordered<RequestHeadDecode<IO, IO>>,
+    _upgrading: FuturesUnordered<RequestHeadDecode<IO>>,
 }

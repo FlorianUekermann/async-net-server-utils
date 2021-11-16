@@ -13,3 +13,6 @@ futures = "0.3.17"
 anyhow = "1.0.44"
 http = "0.2.5"
 async-http-codec = { git = "https://github.com/FlorianUekermann/async-http-codec" }
+
+[dev-dependencies]
+simple_logger = "1.13.0"
