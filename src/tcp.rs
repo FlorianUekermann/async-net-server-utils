@@ -1,7 +1,6 @@
 use crate::http::HttpIncoming;
 use crate::tls::{TlsAcceptor, TlsIncoming};
 use async_io::{Async, ReadableOwned};
-use async_net::TcpStream;
 use futures::prelude::*;
 use futures::FutureExt;
 use std::io;
@@ -9,6 +8,8 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+type TcpStream = async_net::TcpStream;
 
 pub struct TcpIncoming {
     listener: Arc<Async<std::net::TcpListener>>,
