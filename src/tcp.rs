@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-type TcpStream = async_net::TcpStream;
+pub type TcpStream = async_net::TcpStream;
 
 pub struct TcpIncoming {
     listener: Arc<Async<std::net::TcpListener>>,
