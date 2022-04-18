@@ -1,0 +1,59 @@
+<html>
+<head>
+    <script type="text/javascript">
+        function http_send() {
+            let input = document.getElementById("input");
+            let button = document.getElementById("http_button");
+            let output = document.getElementById("http_output");
+            button.disabled = true;
+
+            fetch('/echo', { method: 'POST', body: input.value })
+                .then((response) => {
+                    response.text().then((text) => {
+                        console.log(text);
+                        output.value = text;
+                        button.disabled = false;
+                    });
+                });
+        }
+        function ws_connect() {
+            let input = document.getElementById("input");
+            let button = document.getElementById("ws_button");
+            let output = document.getElementById("ws_output");
+            button.disabled = true;
+
+            let ws = new WebSocket("ws://"+window.location.host+"/echo");
+            ws.onmessage = (event) => {
+                console.log("message", event.data);
+                output.value = event.data;
+            }
+            ws.onclose = ws.onerror = (event) => {
+                console.log("closed", event);
+                button.value = "connect";
+                button.onclick = ws_connect;
+                input.disabled = true;
+            }
+            ws.onopen = () => {
+                console.log("ws opened");
+                input.disabled = false;
+                button.value="send via websocket";
+                button.disabled = false;
+                button.onclick = function() {
+                    ws.send(input.value);
+                }
+            };
+        }
+    </script>
+</head>
+<body>
+<h3>Message</h3>
+<textarea id="input" cols="80" rows="3">hello</textarea>
+<br>
+<input type="button" id="http_button" value="send via http" onclick="http_send()">
+<input type="button" id="ws_button" value="connect websocket" onclick="ws_connect()">
+<h3>Last http response</h3>
+<textarea id="http_output" cols="80" rows="3" disabled ></textarea>
+<h3>Last websocket response</h3>
+<textarea id="ws_output" cols="80" rows="3" disabled ></textarea>
+</body>
+</html>
