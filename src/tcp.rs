@@ -28,6 +28,9 @@ impl TcpIncoming {
     pub fn http(self) -> HttpIncoming<TcpStream, Self> {
         HttpIncoming::new(self)
     }
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.listener.get_ref().local_addr()
+    }
 }
 
 impl Stream for TcpIncoming {
