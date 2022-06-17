@@ -1,4 +1,4 @@
-use crate::http::HttpIncoming;
+use crate::h1::HttpIncoming;
 use crate::tls::{TlsAcceptor, TlsIncoming};
 use async_io::{Async, ReadableOwned};
 use futures::prelude::*;

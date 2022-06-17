@@ -1,13 +1,14 @@
 use crate::tcp::TcpIncoming;
-use async_net::TcpStream;
-use async_rustls::server::TlsStream;
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use std::io;
 use std::pin::Pin;
 
+use crate::TcpStream;
 use futures::StreamExt;
 use std::task::{Context, Poll};
+
+type TlsStream = async_rustls::server::TlsStream<TcpStream>;
 
 pub struct TlsIncoming<A: TlsAcceptor> {
     tcp_incoming: TcpIncoming,
@@ -27,7 +28,7 @@ impl<A: TlsAcceptor> TlsIncoming<A> {
 }
 
 impl<A: TlsAcceptor> Stream for TlsIncoming<A> {
-    type Item = TlsStream<TcpStream>;
+    type Item = TlsStream;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -47,7 +48,7 @@ impl<A: TlsAcceptor> Stream for TlsIncoming<A> {
 }
 
 pub trait TlsAcceptor: Unpin {
-    type Accept: Future<Output = io::Result<TlsStream<TcpStream>>>;
+    type Accept: Future<Output = io::Result<TlsStream>>;
 
     fn accept(&self, stream: TcpStream) -> Self::Accept;
 }

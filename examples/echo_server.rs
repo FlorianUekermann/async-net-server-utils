@@ -1,8 +1,7 @@
 use anyhow::{bail, Context};
 use async_global_executor::{block_on, spawn};
 use async_http_codec::{BodyDecode, BodyEncode, ResponseHeadEncoder};
-use async_web_server::tcp::{TcpIncoming, TcpStream};
-use async_web_server::ws::{HttpOrWs, WsAccept};
+use async_web_server::{HttpOrWs, TcpIncoming, TcpStream, WsAccept};
 use futures::io::copy;
 use futures::prelude::*;
 use http::header::TRANSFER_ENCODING;
