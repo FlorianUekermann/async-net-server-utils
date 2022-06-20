@@ -1,14 +1,11 @@
 use anyhow::{bail, Context};
 use async_global_executor::{block_on, spawn};
-use async_http_codec::{BodyDecode, BodyEncode, ResponseHeadEncoder};
-use async_web_server::{HttpOrWs, TcpIncoming, TcpStream, WsAccept};
+use async_web_server::{HttpOrWs, HttpRequest, TcpIncoming, TcpStream, WsAccept};
 use futures::io::copy;
 use futures::prelude::*;
-use http::header::TRANSFER_ENCODING;
-use http::{Method, Request, Response};
+use http::{Method, Request};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use std::convert::TryInto;
 use std::net::Ipv4Addr;
 
 const HTML: &[u8] = include_bytes!("echo-client.html");
@@ -40,38 +37,23 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-async fn handle_http(req: Request<BodyDecode<TcpStream>>) -> anyhow::Result<()> {
-    let (req_head, mut req_body_read) = req.into_parts();
+async fn handle_http(mut req: HttpRequest<TcpStream>) -> anyhow::Result<()> {
     log::info!(
         "received {:?} request head on {:?}",
-        req_head.method,
-        req_head.uri
+        req.method(),
+        req.uri()
     );
 
-    let mut req_body = Vec::new();
-    req_body_read.read_to_end(&mut req_body).await?;
-    let mut transport = req_body_read.checkpoint().0;
-    log::info!("received request body with {} bytes", req_body.len());
+    let body = req.body_string().await?;
+    log::info!("received request body with {} bytes", body.len());
 
-    let mut resp_head = Response::new(()).into_parts().0;
-    resp_head
-        .headers
-        .insert(TRANSFER_ENCODING, "chunked".try_into()?);
-    ResponseHeadEncoder::default()
-        .encode(&mut transport, &resp_head)
-        .await?;
-    log::info!("sent response head");
-
-    let resp_body = match req_head.method {
-        Method::GET => HTML,
-        Method::POST => &req_body,
+    let resp = req.response().await?;
+    match resp.method() {
+        Method::GET => resp.send(HTML).await?,
+        Method::POST => resp.send(body).await?,
         _ => bail!("unexpected request method"),
-    };
-    let mut resp_body_write = BodyEncode::from_headers(&resp_head.headers, &mut transport)?;
-    resp_body_write.write_all(resp_body).await?;
-    resp_body_write.close().await?;
+    }
     log::info!("sent response body");
-
     Ok(())
 }
 

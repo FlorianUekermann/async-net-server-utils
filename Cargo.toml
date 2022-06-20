@@ -14,7 +14,7 @@ rustls-acme = "0.2.0"
 futures = "0.3.17"
 anyhow = "1.0.44"
 http = "0.2.5"
-async-http-codec = "0.4.4"
+async-http-codec = "0.5.1"
 async-ws = "0.3.2"
 pin-project = "1.0.10"
 
