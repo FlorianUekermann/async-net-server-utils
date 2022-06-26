@@ -27,6 +27,7 @@ impl<A: TlsAcceptor> TlsIncoming<A> {
     }
 }
 
+// TODO: Implement FusedStream
 impl<A: TlsAcceptor> Stream for TlsIncoming<A> {
     type Item = TlsStream;
 
