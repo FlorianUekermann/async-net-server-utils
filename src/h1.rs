@@ -1,8 +1,8 @@
-use crate::ws::HttpOrWsIncoming;
+use crate::HttpOrWsIncoming;
 use async_http_codec::internal::buffer_decode::BufferDecode;
 use async_http_codec::{BodyDecodeWithContinue, BodyEncode, RequestHead, ResponseHead};
 use futures::prelude::*;
-use futures::stream::FuturesUnordered;
+use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
 use http::header::{IntoHeaderName, TRANSFER_ENCODING};
 use http::{HeaderMap, HeaderValue, Method, Request, StatusCode, Uri, Version};
@@ -12,14 +12,14 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub struct HttpIncoming<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> {
-    incoming: T,
+    incoming: Option<T>,
     decoding: FuturesUnordered<BufferDecode<IO, RequestHead<'static>>>,
 }
 
 impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> HttpIncoming<IO, T> {
     pub fn new(transport_incoming: T) -> Self {
         HttpIncoming {
-            incoming: transport_incoming,
+            incoming: Some(transport_incoming),
             decoding: FuturesUnordered::new(),
         }
     }
@@ -43,17 +43,29 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Stream
                     };
                 }
                 Poll::Ready(Some(Err(err))) => log::error!("http head decode error: {:?}", err),
-                Poll::Ready(None) | Poll::Pending => match self.incoming.poll_next_unpin(cx) {
-                    Poll::Ready(Some(transport)) => {
-                        self.decoding.push(RequestHead::decode(transport))
-                    }
-                    Poll::Ready(None) => return Poll::Ready(None),
-                    Poll::Pending => {
-                        return Poll::Pending;
-                    }
+                Poll::Ready(None) | Poll::Pending => match &mut self.incoming {
+                    Some(incoming) => match incoming.poll_next_unpin(cx) {
+                        Poll::Ready(Some(transport)) => {
+                            self.decoding.push(RequestHead::decode(transport))
+                        }
+                        Poll::Ready(None) => {
+                            drop(self.incoming.take());
+                            return Poll::Ready(None);
+                        }
+                        Poll::Pending => return Poll::Pending,
+                    },
+                    None => return Poll::Pending,
                 },
             }
         }
+    }
+}
+
+impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> FusedStream
+    for HttpIncoming<IO, T>
+{
+    fn is_terminated(&self) -> bool {
+        self.incoming.is_none() && self.decoding.is_terminated()
     }
 }
 
@@ -63,8 +75,15 @@ pub struct HttpRequest<IO: AsyncRead + AsyncWrite + Unpin> {
 }
 
 impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
-    /// Direct access to the request as [http::Request] with underlying transport as body.
-    /// Calling this method after starting to read the body may lead to one of these situations:
+    /// Direct access to the request as [http::Request] with body decoder and underlying transport.
+    /// The transport may be extracted using
+    /// ```no_run
+    /// # use futures::io::Cursor;
+    /// # use async_web_server::{HttpRequest};
+    /// # let request: HttpRequest<Cursor<&mut [u8]>> = todo!();
+    /// let transport = request.into_inner();
+    /// ```
+    /// Doing this after starting to read the body may lead to one of these situations:
     /// - The meaning of remaining data read from the transport is ambiguous, if the body has been
     /// partially consumed and is encoded using
     /// [chunked transfer encoding](https://en.wikipedia.org/wiki/Chunked_transfer_encoding).
@@ -74,8 +93,14 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
     ///
     /// Reasoning about the protocol state is only trivial before calling [Self::body()] and after
     /// consuming the whole body.
-    pub fn into_inner(self) -> Request<IO> {
-        Request::from_parts(self.head.into(), self.body.checkpoint().0)
+    pub fn into_inner(self) -> Request<BodyDecodeWithContinue<IO>> {
+        Request::from_parts(self.head.into(), self.body)
+    }
+    /// The inverse of [Self::into_inner()].
+    pub fn from_inner(request: Request<BodyDecodeWithContinue<IO>>) -> Self {
+        let (head, body) = request.into_parts();
+        let head = head.into();
+        Self { head, body }
     }
     /// Move on to responding after consuming and discarding the remaining request body data.
     pub async fn response(mut self) -> anyhow::Result<HttpResponse<IO>> {

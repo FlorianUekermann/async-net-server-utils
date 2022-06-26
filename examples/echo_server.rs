@@ -1,9 +1,9 @@
 use anyhow::{bail, Context};
 use async_global_executor::{block_on, spawn};
-use async_web_server::{HttpOrWs, HttpRequest, TcpIncoming, TcpStream, WsAccept};
+use async_web_server::{HttpOrWs, HttpRequest, TcpIncoming, TcpStream, WsUpgradeRequest};
 use futures::io::copy;
 use futures::prelude::*;
-use http::{Method, Request};
+use http::Method;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use std::net::Ipv4Addr;
@@ -57,9 +57,9 @@ async fn handle_http(mut req: HttpRequest<TcpStream>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_ws(req: Request<WsAccept<TcpStream>>) -> anyhow::Result<()> {
+async fn handle_ws(req: WsUpgradeRequest<TcpStream>) -> anyhow::Result<()> {
     log::info!("received websocket upgrade request on {:?}", req.uri());
-    let mut ws = req.into_body().await?;
+    let mut ws = req.upgrade().await?;
     log::info!("accepted websocket handshake");
 
     while let Some(mut msg_read) = ws.next().await {

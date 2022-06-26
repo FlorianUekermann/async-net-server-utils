@@ -2,6 +2,7 @@ use crate::h1::HttpIncoming;
 use crate::tls::{TlsAcceptor, TlsIncoming};
 use async_io::{Async, ReadableOwned};
 use futures::prelude::*;
+use futures::stream::FusedStream;
 use futures::FutureExt;
 use std::io;
 use std::net::SocketAddr;
@@ -50,5 +51,11 @@ impl Stream for TcpIncoming {
                 },
             }
         }
+    }
+}
+
+impl FusedStream for TcpIncoming {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
