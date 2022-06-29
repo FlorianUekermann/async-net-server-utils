@@ -1,11 +1,12 @@
 use anyhow::{bail, Context};
-use async_global_executor::{block_on, spawn};
 use async_web_server::{HttpOrWs, HttpRequest, TcpIncoming, TcpStream, WsUpgradeRequest};
 use futures::io::copy;
 use futures::prelude::*;
 use http::Method;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use smol::future::block_on;
+use smol::spawn;
 use std::net::Ipv4Addr;
 
 const HTML: &[u8] = include_bytes!("echo-client.html");
