@@ -1,11 +1,13 @@
 use crate::tcp::TcpIncoming;
-use crate::TcpStream;
+use crate::{HttpIncoming, TcpStream};
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
 use rustls_acme::futures_rustls::rustls::server::{Acceptor, ClientHello};
-use rustls_acme::futures_rustls::rustls::ServerConfig;
+use rustls_acme::futures_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_acme::futures_rustls::{Accept, LazyConfigAcceptor};
+use rustls_pemfile::Item;
+use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -29,6 +31,9 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> TlsIncoming<F> {
             start_accepts,
             accepts,
         }
+    }
+    pub fn http(self) -> HttpIncoming<TlsStream, Self> {
+        HttpIncoming::new(self)
     }
 }
 
@@ -76,4 +81,39 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> FusedStream for TlsIncoming<F>
             && self.accepts.is_terminated()
             && self.start_accepts.is_terminated()
     }
+}
+
+pub fn parse_pem(pem: impl AsRef<[u8]>) -> io::Result<(Vec<Certificate>, PrivateKey)> {
+    let mut buf = pem.as_ref();
+    let pem = rustls_pemfile::read_all(&mut buf)?;
+
+    let (mut cert_chain, mut private_key) = (Vec::new(), None);
+    for item in pem.into_iter() {
+        match item {
+            Item::X509Certificate(b) => cert_chain.push(Certificate(b)),
+            Item::RSAKey(v) | Item::PKCS8Key(v) | Item::ECKey(v) => {
+                if private_key.is_none() {
+                    private_key = Some(PrivateKey(v));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let private_key = match private_key {
+        None => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "missing private key",
+            ))
+        }
+        Some(private_key) => private_key,
+    };
+    if cert_chain.len() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "missing certificates",
+        ));
+    }
+    Ok((cert_chain, private_key))
 }

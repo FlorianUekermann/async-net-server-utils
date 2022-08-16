@@ -103,7 +103,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
         Self { head, body }
     }
     /// Move on to responding after consuming and discarding the remaining request body data.
-    pub async fn response(mut self) -> anyhow::Result<HttpResponse<IO>> {
+    pub async fn response(mut self) -> io::Result<HttpResponse<IO>> {
         while 0 < self.body().read(&mut [0u8; 1 << 14]).await? {}
         let Self { head, body } = self;
         let request_head = http::request::Parts::from(head);
@@ -127,7 +127,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
         &mut self.body
     }
     /// Read whole body as [String]. See [Self::body] for details.
-    pub async fn body_string(&mut self) -> anyhow::Result<String> {
+    pub async fn body_string(&mut self) -> io::Result<String> {
         let mut body = String::new();
         self.body().read_to_string(&mut body).await?;
         Ok(body)

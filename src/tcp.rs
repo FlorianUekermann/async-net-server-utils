@@ -51,14 +51,14 @@ impl TcpIncoming {
         let config = Arc::new(config);
         Ok(TlsIncoming::new(self, move |_| config.clone()))
     }
-    pub fn tls_acme_with_config<EC: Debug, EA: Debug>(
+    pub fn tls_acme<EC: Debug, EA: Debug>(
         self,
         config: AcmeConfig<EC, EA>,
     ) -> AcmeIncoming<EC, EA> {
         AcmeIncoming::new(self, config)
     }
     // TODO: add rate limit warning for production
-    pub fn tls_acme(
+    pub fn tls_lets_encrypt(
         self,
         domains: impl IntoIterator<Item = impl AsRef<str>>,
         contact: impl IntoIterator<Item = impl AsRef<str>>,
@@ -69,7 +69,7 @@ impl TcpIncoming {
             .contact(contact)
             .cache(DirCache::new(cache_dir))
             .directory_lets_encrypt(production);
-        self.tls_acme_with_config(config)
+        self.tls_acme(config)
     }
     pub fn http(self) -> HttpIncoming<TcpStream, Self> {
         HttpIncoming::new(self)

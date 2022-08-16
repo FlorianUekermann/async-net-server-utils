@@ -6,7 +6,6 @@ use async_ws::http::{is_upgrade_request, upgrade_response};
 use futures::prelude::*;
 use futures::stream::FusedStream;
 use http::{HeaderMap, Method, Request, Uri, Version};
-use pin_project::pin_project;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -16,7 +15,6 @@ pub enum HttpOrWs<IO: AsyncRead + AsyncWrite + Unpin> {
     Ws(WsUpgradeRequest<IO>),
 }
 
-#[pin_project]
 pub struct HttpOrWsIncoming<
     IO: AsyncRead + AsyncWrite + Unpin,
     T: Stream<Item = HttpRequest<IO>> + Unpin,

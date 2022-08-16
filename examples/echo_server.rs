@@ -1,23 +1,27 @@
 use anyhow::{bail, Context};
 use async_web_server::{HttpOrWs, HttpRequest, TcpIncoming, TcpStream, WsUpgradeRequest};
+use clap::Parser;
 use futures::io::copy;
 use futures::prelude::*;
 use http::Method;
-use log::LevelFilter;
-use simple_logger::SimpleLogger;
 use smol::future::block_on;
 use smol::spawn;
-use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 const HTML: &[u8] = include_bytes!("echo-client.html");
 
-fn main() -> anyhow::Result<()> {
-    SimpleLogger::new()
-        .with_level(LevelFilter::Info)
-        .init()
-        .unwrap();
+#[derive(Parser, Debug)]
+struct Args {
+    //// HTTP and HTTPS port
+    #[clap(short, long, default_value = "80")]
+    port: u16,
+}
 
-    let mut incoming = TcpIncoming::bind((Ipv4Addr::UNSPECIFIED, 8080))?
+fn main() -> anyhow::Result<()> {
+    simple_logger::init_with_level(log::Level::Info).unwrap();
+    let args = Args::parse();
+
+    let mut incoming = TcpIncoming::bind((Ipv6Addr::UNSPECIFIED, args.port))?
         .http()
         .or_ws();
 
