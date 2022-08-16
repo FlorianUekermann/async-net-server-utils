@@ -1,11 +1,18 @@
 use crate::h1::HttpIncoming;
-use crate::tls::{TlsAcceptor, TlsIncoming};
+use crate::tls::TlsIncoming;
+use crate::AcmeIncoming;
 use async_io::{Async, ReadableOwned};
 use futures::prelude::*;
 use futures::stream::FusedStream;
 use futures::FutureExt;
+use rustls_acme::caches::DirCache;
+use rustls_acme::futures_rustls::rustls::server::ClientHello;
+use rustls_acme::futures_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_acme::AcmeConfig;
+use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -23,8 +30,46 @@ impl TcpIncoming {
         let readable = Box::pin(listener.clone().readable_owned());
         Ok(Self { listener, readable })
     }
-    pub fn tls<A: TlsAcceptor>(self, tls_acceptor: A) -> TlsIncoming<A> {
-        TlsIncoming::new(self, tls_acceptor)
+    pub fn tls_with_config<F: FnMut(&ClientHello) -> Arc<ServerConfig>>(
+        self,
+        f: F,
+    ) -> TlsIncoming<F> {
+        TlsIncoming::new(self, f)
+    }
+    pub fn tls(
+        self,
+        cert_chain: Vec<Certificate>,
+        key_der: PrivateKey,
+    ) -> Result<
+        TlsIncoming<impl FnMut(&ClientHello) -> Arc<ServerConfig>>,
+        rustls_acme::futures_rustls::rustls::Error,
+    > {
+        let config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, key_der)?;
+        let config = Arc::new(config);
+        Ok(TlsIncoming::new(self, move |_| config.clone()))
+    }
+    pub fn tls_acme_with_config<EC: Debug, EA: Debug>(
+        self,
+        config: AcmeConfig<EC, EA>,
+    ) -> AcmeIncoming<EC, EA> {
+        AcmeIncoming::new(self, config)
+    }
+    // TODO: add rate limit warning for production
+    pub fn tls_acme(
+        self,
+        domains: impl IntoIterator<Item = impl AsRef<str>>,
+        contact: impl IntoIterator<Item = impl AsRef<str>>,
+        cache_dir: impl AsRef<Path> + Send + Sync + 'static,
+        production: bool,
+    ) -> AcmeIncoming<io::Error, io::Error> {
+        let config = AcmeConfig::new(domains)
+            .contact(contact)
+            .cache(DirCache::new(cache_dir))
+            .directory_lets_encrypt(production);
+        self.tls_acme_with_config(config)
     }
     pub fn http(self) -> HttpIncoming<TcpStream, Self> {
         HttpIncoming::new(self)
@@ -43,7 +88,7 @@ impl Stream for TcpIncoming {
             match Box::pin(listener.accept()).poll_unpin(cx) {
                 Poll::Ready(result) => match result {
                     Ok((stream, _)) => return Poll::Ready(Some(stream.into())),
-                    Err(err) => log::error!("tcp accept error: {:?}", err),
+                    Err(err) => log::debug!("tcp accept error: {:?}", err),
                 },
                 Poll::Pending => match self.readable.as_mut().poll(cx) {
                     Poll::Pending => return Poll::Pending,

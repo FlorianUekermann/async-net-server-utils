@@ -1,71 +1,79 @@
 use crate::tcp::TcpIncoming;
-use futures::prelude::*;
-use futures::stream::FuturesUnordered;
-use std::io;
-use std::pin::Pin;
-
 use crate::TcpStream;
+use futures::prelude::*;
+use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
+use rustls_acme::futures_rustls::rustls::server::{Acceptor, ClientHello};
+use rustls_acme::futures_rustls::rustls::ServerConfig;
+use rustls_acme::futures_rustls::{Accept, LazyConfigAcceptor};
+use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-type TlsStream = async_rustls::server::TlsStream<TcpStream>;
+pub type TlsStream = rustls_acme::futures_rustls::server::TlsStream<TcpStream>;
 
-pub struct TlsIncoming<A: TlsAcceptor> {
-    tcp_incoming: TcpIncoming,
-    tls_acceptor: A,
-    accepts: FuturesUnordered<A::Accept>,
+pub struct TlsIncoming<F: FnMut(&ClientHello) -> Arc<ServerConfig>> {
+    tcp_incoming: Option<TcpIncoming>,
+    f: F,
+    start_accepts: FuturesUnordered<LazyConfigAcceptor<TcpStream>>,
+    accepts: FuturesUnordered<Accept<TcpStream>>,
 }
 
-impl<A: TlsAcceptor> TlsIncoming<A> {
-    pub fn new(tcp_incoming: TcpIncoming, tls_acceptor: A) -> Self {
+impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> TlsIncoming<F> {
+    pub fn new(tcp_incoming: TcpIncoming, f: F) -> Self {
+        let start_accepts = FuturesUnordered::new();
         let accepts = FuturesUnordered::new();
         TlsIncoming {
-            tcp_incoming,
-            tls_acceptor,
+            tcp_incoming: Some(tcp_incoming),
+            f,
+            start_accepts,
             accepts,
         }
     }
 }
 
-// TODO: Implement FusedStream
-impl<A: TlsAcceptor> Stream for TlsIncoming<A> {
+impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> Unpin for TlsIncoming<F> {}
+
+impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> Stream for TlsIncoming<F> {
     type Item = TlsStream;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.accepts.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(tls_stream))) => return Poll::Ready(Some(tls_stream)),
-                Poll::Ready(Some(Err(err))) => log::error!("tls accept error: {:?}", err),
-                Poll::Ready(None) | Poll::Pending => match self.tcp_incoming.poll_next_unpin(cx) {
-                    Poll::Ready(Some(tcp_stream)) => {
-                        self.accepts.push(self.tls_acceptor.accept(tcp_stream))
+                Poll::Ready(Some(Err(err))) => log::debug!("tls accept error: {:?}", err),
+                Poll::Ready(None) | Poll::Pending => match self.start_accepts.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(start_handshake))) => {
+                        let config = (self.f)(&start_handshake.client_hello());
+                        let accept_fut = start_handshake.into_stream(config);
+                        self.accepts.push(accept_fut);
                     }
-                    Poll::Ready(None) => return Poll::Ready(None),
-                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Some(Err(err))) => log::debug!("tls accept error: {:?}", err),
+                    Poll::Ready(None) | Poll::Pending => match &mut self.tcp_incoming {
+                        None => return Poll::Pending,
+                        Some(tcp_incoming) => match tcp_incoming.poll_next_unpin(cx) {
+                            Poll::Ready(Some(tcp_stream)) => {
+                                let acceptor = Acceptor::new().unwrap();
+                                let acceptor_fut = LazyConfigAcceptor::new(acceptor, tcp_stream);
+                                self.start_accepts.push(acceptor_fut);
+                            }
+                            Poll::Ready(None) => {
+                                drop(self.tcp_incoming.take());
+                                return Poll::Ready(None);
+                            }
+                            Poll::Pending => return Poll::Pending,
+                        },
+                    },
                 },
             }
         }
     }
 }
 
-pub trait TlsAcceptor: Unpin {
-    type Accept: Future<Output = io::Result<TlsStream>>;
-
-    fn accept(&self, stream: TcpStream) -> Self::Accept;
-}
-
-impl TlsAcceptor for async_rustls::TlsAcceptor {
-    type Accept = async_rustls::Accept<TcpStream>;
-
-    fn accept(&self, stream: TcpStream) -> Self::Accept {
-        self.accept(stream)
-    }
-}
-
-impl TlsAcceptor for rustls_acme::TlsAcceptor {
-    type Accept = rustls_acme::Accept<TcpStream>;
-
-    fn accept(&self, stream: TcpStream) -> Self::Accept {
-        self.accept(stream)
+impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> FusedStream for TlsIncoming<F> {
+    fn is_terminated(&self) -> bool {
+        self.tcp_incoming.is_none()
+            && self.accepts.is_terminated()
+            && self.start_accepts.is_terminated()
     }
 }

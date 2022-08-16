@@ -39,10 +39,10 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Stream
                 Poll::Ready(Some(Ok((transport, head)))) => {
                     match BodyDecodeWithContinue::from_head(&head, transport) {
                         Ok(body) => return Poll::Ready(Some(HttpRequest { head, body })),
-                        Err(err) => log::error!("http head error: {:?}", err),
+                        Err(err) => log::debug!("http head error: {:?}", err),
                     };
                 }
-                Poll::Ready(Some(Err(err))) => log::error!("http head decode error: {:?}", err),
+                Poll::Ready(Some(Err(err))) => log::debug!("http head decode error: {:?}", err),
                 Poll::Ready(None) | Poll::Pending => match &mut self.incoming {
                     Some(incoming) => match incoming.poll_next_unpin(cx) {
                         Poll::Ready(Some(transport)) => {
