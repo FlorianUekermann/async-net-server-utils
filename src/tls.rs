@@ -55,17 +55,17 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> Stream for TlsIncoming<F> {
                     }
                     Poll::Ready(Some(Err(err))) => log::debug!("tls accept error: {:?}", err),
                     Poll::Ready(None) | Poll::Pending => match &mut self.tcp_incoming {
-                        None => return Poll::Pending,
+                        None => match self.is_terminated() {
+                            true => return Poll::Ready(None),
+                            false => return Poll::Pending,
+                        },
                         Some(tcp_incoming) => match tcp_incoming.poll_next_unpin(cx) {
                             Poll::Ready(Some(tcp_stream)) => {
                                 let acceptor = Acceptor::new().unwrap();
                                 let acceptor_fut = LazyConfigAcceptor::new(acceptor, tcp_stream);
                                 self.start_accepts.push(acceptor_fut);
                             }
-                            Poll::Ready(None) => {
-                                drop(self.tcp_incoming.take());
-                                return Poll::Ready(None);
-                            }
+                            Poll::Ready(None) => drop(self.tcp_incoming.take()),
                             Poll::Pending => return Poll::Pending,
                         },
                     },

@@ -39,7 +39,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = HttpRequest<IO>> + Unp
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let incoming = match &mut self.incoming {
-            None => return Poll::Pending,
+            None => return Poll::Ready(None),
             Some(incoming) => incoming,
         };
 

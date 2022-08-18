@@ -4,8 +4,8 @@ use async_http_codec::{BodyDecodeWithContinue, BodyEncode, RequestHead, Response
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
-use http::header::{IntoHeaderName, LOCATION, TRANSFER_ENCODING};
-use http::uri::Scheme;
+use http::header::{IntoHeaderName, HOST, LOCATION, TRANSFER_ENCODING};
+use http::uri::{Authority, Parts, Scheme};
 use http::{HeaderMap, HeaderValue, Method, Request, StatusCode, Uri, Version};
 use log::debug;
 use std::borrow::Cow;
@@ -51,13 +51,13 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Stream
                         Poll::Ready(Some(transport)) => {
                             self.decoding.push(RequestHead::decode(transport))
                         }
-                        Poll::Ready(None) => {
-                            drop(self.incoming.take());
-                            return Poll::Ready(None);
-                        }
+                        Poll::Ready(None) => drop(self.incoming.take()),
                         Poll::Pending => return Poll::Pending,
                     },
-                    None => return Poll::Pending,
+                    None => match self.is_terminated() {
+                        true => return Poll::Ready(None),
+                        false => return Poll::Pending,
+                    },
                 },
             }
         }
@@ -230,33 +230,40 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpResponse<IO> {
 impl HttpIncoming<TcpStream, TcpIncoming> {
     pub fn redirect_https(self) -> RedirectHttps {
         RedirectHttps {
-            incoming: Some(self),
+            incoming: self,
             redirecting: FuturesUnordered::new(),
         }
     }
 }
 
 pub struct RedirectHttps {
-    incoming: Option<HttpIncoming<TcpStream, TcpIncoming>>,
+    incoming: HttpIncoming<TcpStream, TcpIncoming>,
     // TODO: replace Box<dyn ...> once https://github.com/rust-lang/rust/issues/63063 is stable
     redirecting: FuturesUnordered<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
 }
 
 impl RedirectHttps {
     fn set_location_header(resp: &mut HttpResponse<TcpStream>) -> http::Result<()> {
-        let mut parts = resp.uri().clone().into_parts();
+        let authority = match resp.request_headers().get(HOST) {
+            Some(host) => Some(Authority::try_from(host.as_bytes())?),
+            None => None,
+        };
+        let mut parts: Parts = Default::default();
         parts.scheme = Some(Scheme::HTTPS);
+        parts.authority = authority;
+        parts.path_and_query = resp.uri().path_and_query().cloned();
         let header_value = HeaderValue::try_from(Uri::from_parts(parts)?.to_string())?;
         resp.insert_header(LOCATION, header_value);
         Ok(())
     }
     async fn send(req: HttpRequest<TcpStream>) {
         match req.response().await {
-            Err(err) => debug!("error reading redirect request body: {:?}", err),
+            Err(err) => debug!("error reading body of request to be redirected: {:?}", err),
             Ok(mut resp) => match Self::set_location_header(&mut resp) {
                 Err(err) => debug!("error constructing redirect location header: {:?}", err),
                 Ok(()) => {
                     resp.set_status(StatusCode::TEMPORARY_REDIRECT);
+                    dbg!();
                     if let Err(err) = resp.send(&[]).await {
                         debug!("error sending redirect response: {:?}", err)
                     }
@@ -274,18 +281,16 @@ impl Future for RedirectHttps {
             if let Poll::Ready(Some(())) = Pin::new(&mut self.redirecting).poll_next(cx) {
                 continue;
             }
-            let incoming = match &mut self.incoming {
-                None => match self.redirecting.is_terminated() {
-                    true => return Poll::Ready(()),
-                    false => return Poll::Pending,
-                },
-                Some(incoming) => incoming,
-            };
-            match Pin::new(incoming).poll_next(cx) {
-                Poll::Ready(None) => drop(self.incoming.take()),
-                Poll::Ready(Some(req)) => self.redirecting.push(Box::pin(Self::send(req))),
-                Poll::Pending => return Poll::Pending,
+            if !self.incoming.is_terminated() {
+                if let Poll::Ready(Some(req)) = Pin::new(&mut self.incoming).poll_next(cx) {
+                    self.redirecting.push(Box::pin(Self::send(req)));
+                    continue;
+                }
             }
+            return match self.incoming.is_terminated() && self.redirecting.is_terminated() {
+                true => Poll::Ready(()),
+                false => Poll::Pending,
+            };
         }
     }
 }
