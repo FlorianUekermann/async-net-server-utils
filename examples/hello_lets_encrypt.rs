@@ -34,6 +34,11 @@ fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
+    let redirect_http = TcpIncoming::bind((Ipv6Addr::UNSPECIFIED, args.ports[0]))?
+        .http()
+        .redirect_https();
+    spawn(redirect_http).detach();
+
     let contact = args.email.iter().map(|e| format!("mailto:{}", e));
 
     let mut incoming = TcpIncoming::bind((Ipv6Addr::UNSPECIFIED, args.ports[1]))?

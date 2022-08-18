@@ -1,12 +1,15 @@
-use crate::HttpOrWsIncoming;
+use crate::{HttpOrWsIncoming, TcpIncoming, TcpStream};
 use async_http_codec::internal::buffer_decode::BufferDecode;
 use async_http_codec::{BodyDecodeWithContinue, BodyEncode, RequestHead, ResponseHead};
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
-use http::header::{IntoHeaderName, TRANSFER_ENCODING};
+use http::header::{IntoHeaderName, LOCATION, TRANSFER_ENCODING};
+use http::uri::Scheme;
 use http::{HeaderMap, HeaderValue, Method, Request, StatusCode, Uri, Version};
+use log::debug;
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -69,6 +72,11 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> FusedStre
     }
 }
 
+impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Unpin
+    for HttpIncoming<IO, T>
+{
+}
+
 pub struct HttpRequest<IO: AsyncRead + AsyncWrite + Unpin> {
     pub(crate) head: RequestHead<'static>,
     pub(crate) body: BodyDecodeWithContinue<IO>,
@@ -120,6 +128,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
             transport,
         })
     }
+
     /// Access the request body data stream as [futures::io::AsyncRead].
     /// If the request includes the `Expect: 100-continue` the informational response `100 Continue`
     /// will be sent to the client before the reader emits any body data.
@@ -215,5 +224,68 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpResponse<IO> {
         encoder.write_all(body.as_ref()).await?;
         encoder.close().await?;
         Ok(())
+    }
+}
+
+impl HttpIncoming<TcpStream, TcpIncoming> {
+    pub fn redirect_https(self) -> RedirectHttps {
+        RedirectHttps {
+            incoming: Some(self),
+            redirecting: FuturesUnordered::new(),
+        }
+    }
+}
+
+pub struct RedirectHttps {
+    incoming: Option<HttpIncoming<TcpStream, TcpIncoming>>,
+    // TODO: replace Box<dyn ...> once https://github.com/rust-lang/rust/issues/63063 is stable
+    redirecting: FuturesUnordered<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
+}
+
+impl RedirectHttps {
+    fn set_location_header(resp: &mut HttpResponse<TcpStream>) -> http::Result<()> {
+        let mut parts = resp.uri().clone().into_parts();
+        parts.scheme = Some(Scheme::HTTPS);
+        let header_value = HeaderValue::try_from(Uri::from_parts(parts)?.to_string())?;
+        resp.insert_header(LOCATION, header_value);
+        Ok(())
+    }
+    async fn send(req: HttpRequest<TcpStream>) {
+        match req.response().await {
+            Err(err) => debug!("error reading redirect request body: {:?}", err),
+            Ok(mut resp) => match Self::set_location_header(&mut resp) {
+                Err(err) => debug!("error constructing redirect location header: {:?}", err),
+                Ok(()) => {
+                    resp.set_status(StatusCode::TEMPORARY_REDIRECT);
+                    if let Err(err) = resp.send(&[]).await {
+                        debug!("error sending redirect response: {:?}", err)
+                    }
+                }
+            },
+        }
+    }
+}
+
+impl Future for RedirectHttps {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        loop {
+            if let Poll::Ready(Some(())) = Pin::new(&mut self.redirecting).poll_next(cx) {
+                continue;
+            }
+            let incoming = match &mut self.incoming {
+                None => match self.redirecting.is_terminated() {
+                    true => return Poll::Ready(()),
+                    false => return Poll::Pending,
+                },
+                Some(incoming) => incoming,
+            };
+            match Pin::new(incoming).poll_next(cx) {
+                Poll::Ready(None) => drop(self.incoming.take()),
+                Poll::Ready(Some(req)) => self.redirecting.push(Box::pin(Self::send(req))),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }

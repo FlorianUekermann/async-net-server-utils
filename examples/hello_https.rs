@@ -28,6 +28,11 @@ fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
+    let redirect_http = TcpIncoming::bind((Ipv6Addr::UNSPECIFIED, args.ports[0]))?
+        .http()
+        .redirect_https();
+    spawn(redirect_http).detach();
+
     let (cert_chain, private_key) = match &args.cert {
         None => generate_certificate(args.domains.clone()),
         Some(path) => parse_pem(fs::read(path)?)?,
