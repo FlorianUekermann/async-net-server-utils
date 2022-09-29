@@ -1,6 +1,6 @@
 [![Documentation](https://docs.rs/async-web-server/badge.svg)](https://docs.rs/async-web-server/)
 
-TLS certificate management and serving using rustls
+async web server helpers
 
 ## License
 
