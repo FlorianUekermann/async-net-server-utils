@@ -216,14 +216,19 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpResponse<IO> {
         *self.status_mut() = status;
         self
     }
-    /// Send the request with the specified body.
-    pub async fn send(mut self, body: impl AsRef<[u8]>) -> io::Result<()> {
-        self.insert_header(TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
-        self.head.encode(&mut self.transport).await?;
-        let mut encoder = BodyEncode::new(&mut self.transport, None);
+    /// Send the request with the specified body. See [Self::body] for sending a response with a
+    /// streaming body.
+    pub async fn send(self, body: impl AsRef<[u8]>) -> io::Result<()> {
+        let mut encoder = self.body().await?;
         encoder.write_all(body.as_ref()).await?;
         encoder.close().await?;
         Ok(())
+    }
+    /// Move on to sending body after sending response head.
+    pub async fn body(mut self) -> io::Result<BodyEncode<IO>> {
+        self.insert_header(TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
+        self.head.encode(&mut self.transport).await?;
+        Ok(BodyEncode::new(self.transport, None))
     }
 }
 

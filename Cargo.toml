@@ -1,6 +1,6 @@
 [package]
 name = "async-web-server"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2018"
 description = "async web server helpers"
 license = "Apache-2.0 OR MIT"
