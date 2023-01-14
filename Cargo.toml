@@ -1,6 +1,6 @@
 [package]
 name = "async-web-server"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2018"
 description = "async web server helpers"
 license = "Apache-2.0 OR MIT"
@@ -14,7 +14,7 @@ log = "0.4.14"
 rustls-acme = "0.5.0"
 futures = "0.3.17"
 http = "0.2.5"
-async-http-codec = "0.5.5"
+async-http-codec = "0.5.6"
 async-ws = "0.3.2"
 rustls-pemfile = "1.0.1"
 
