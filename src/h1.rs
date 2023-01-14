@@ -268,7 +268,6 @@ impl RedirectHttps {
                 Err(err) => debug!("error constructing redirect location header: {:?}", err),
                 Ok(()) => {
                     resp.set_status(StatusCode::TEMPORARY_REDIRECT);
-                    dbg!();
                     if let Err(err) = resp.send(&[]).await {
                         debug!("error sending redirect response: {:?}", err)
                     }
