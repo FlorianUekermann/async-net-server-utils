@@ -61,7 +61,7 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> Stream for TlsIncoming<F> {
                         },
                         Some(tcp_incoming) => match tcp_incoming.poll_next_unpin(cx) {
                             Poll::Ready(Some(tcp_stream)) => {
-                                let acceptor = Acceptor::new().unwrap();
+                                let acceptor = Acceptor::default();
                                 let acceptor_fut = LazyConfigAcceptor::new(acceptor, tcp_stream);
                                 self.start_accepts.push(acceptor_fut);
                             }
