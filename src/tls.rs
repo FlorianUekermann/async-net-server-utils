@@ -1,5 +1,5 @@
 use crate::tcp::TcpIncoming;
-use crate::{HttpIncoming, TcpStream};
+use crate::{HttpIncoming, TcpOrTlsIncoming, TcpStream};
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
@@ -34,6 +34,14 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> TlsIncoming<F> {
     }
     pub fn http(self) -> HttpIncoming<TlsStream, Self> {
         HttpIncoming::new(self)
+    }
+}
+
+impl<F: FnMut(&ClientHello) -> Arc<ServerConfig> + 'static> TlsIncoming<F> {
+    pub fn or_tcp(self) -> TcpOrTlsIncoming {
+        let mut tcp_or_tls = TcpOrTlsIncoming::new();
+        tcp_or_tls.push(self);
+        tcp_or_tls
     }
 }
 

@@ -1,6 +1,8 @@
-use crate::{HttpOrWsIncoming, TcpIncoming, TcpStream};
+use crate::{HttpOrWsIncoming, IsTls, TcpIncoming, TcpOrTlsIncoming, TcpOrTlsStream, TcpStream};
 use async_http_codec::internal::buffer_decode::BufferDecode;
-use async_http_codec::{BodyDecodeWithContinue, BodyEncode, RequestHead, ResponseHead};
+use async_http_codec::{
+    BodyDecodeWithContinue, BodyDecodeWithContinueState, BodyEncode, RequestHead, ResponseHead,
+};
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
@@ -14,7 +16,10 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct HttpIncoming<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> {
+pub struct HttpIncoming<
+    IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream,
+    T: Stream<Item = IO> + Unpin = TcpOrTlsIncoming,
+> {
     incoming: Option<T>,
     decoding: FuturesUnordered<BufferDecode<IO, RequestHead<'static>>>,
 }
@@ -40,8 +45,14 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Stream
         loop {
             match self.decoding.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok((transport, head)))) => {
-                    match BodyDecodeWithContinue::from_head(&head, transport) {
-                        Ok(body) => return Poll::Ready(Some(HttpRequest { head, body })),
+                    match BodyDecodeWithContinueState::from_head(&head) {
+                        Ok(state) => {
+                            return Poll::Ready(Some(HttpRequest {
+                                head,
+                                state,
+                                transport,
+                            }))
+                        }
                         Err(err) => log::debug!("http head error: {:?}", err),
                     };
                 }
@@ -77,9 +88,16 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = IO> + Unpin> Unpin
 {
 }
 
-pub struct HttpRequest<IO: AsyncRead + AsyncWrite + Unpin> {
+pub struct HttpRequest<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     pub(crate) head: RequestHead<'static>,
-    pub(crate) body: BodyDecodeWithContinue<IO>,
+    pub(crate) state: BodyDecodeWithContinueState,
+    pub(crate) transport: IO,
+}
+
+impl<IO: AsyncRead + AsyncWrite + Unpin + IsTls> IsTls for HttpRequest<IO> {
+    fn is_tls(&self) -> bool {
+        self.transport.is_tls()
+    }
 }
 
 impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
@@ -101,24 +119,34 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
     ///
     /// Reasoning about the protocol state is only trivial before calling [Self::body()] and after
     /// consuming the whole body.
-    pub fn into_inner(self) -> Request<BodyDecodeWithContinue<IO>> {
-        Request::from_parts(self.head.into(), self.body)
+    pub fn into_inner(self) -> Request<BodyDecodeWithContinue<BodyDecodeWithContinueState, IO>> {
+        Request::from_parts(self.head.into(), self.state.into_async_read(self.transport))
     }
     /// The inverse of [Self::into_inner()].
-    pub fn from_inner(request: Request<BodyDecodeWithContinue<IO>>) -> Self {
+    pub fn from_inner(
+        request: Request<BodyDecodeWithContinue<BodyDecodeWithContinueState, IO>>,
+    ) -> Self {
         let (head, body) = request.into_parts();
         let head = head.into();
-        Self { head, body }
+        let (state, transport) = body.into_inner();
+        Self {
+            head,
+            state,
+            transport,
+        }
     }
     /// Move on to responding after consuming and discarding the remaining request body data.
     pub async fn response(mut self) -> io::Result<HttpResponse<IO>> {
         while 0 < self.body().read(&mut [0u8; 1 << 14]).await? {}
-        let Self { head, body } = self;
+        let Self {
+            head,
+            state: _,
+            transport,
+        } = self;
         let request_head = http::request::Parts::from(head);
         let request_headers = request_head.headers;
         let request_method = request_head.method;
         let request_uri = request_head.uri;
-        let transport = body.checkpoint().0;
         let headers = Cow::Owned(HeaderMap::with_capacity(128));
         Ok(HttpResponse {
             request_headers,
@@ -132,8 +160,8 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
     /// Access the request body data stream as [futures::io::AsyncRead].
     /// If the request includes the `Expect: 100-continue` the informational response `100 Continue`
     /// will be sent to the client before the reader emits any body data.
-    pub fn body(&mut self) -> &mut BodyDecodeWithContinue<IO> {
-        &mut self.body
+    pub fn body(&mut self) -> BodyDecodeWithContinue<&mut BodyDecodeWithContinueState, &mut IO> {
+        self.state.as_async_read(&mut self.transport)
     }
     /// Read whole body as [String]. See [Self::body] for details.
     pub async fn body_string(&mut self) -> io::Result<String> {

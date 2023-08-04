@@ -1,4 +1,4 @@
-use crate::HttpRequest;
+use crate::{HttpRequest, IsTls, TcpOrTlsIncoming, TcpOrTlsStream};
 use async_http_codec::internal::buffer_write::BufferWrite;
 use async_http_codec::{RequestHead, ResponseHead};
 use async_ws::connection::{WsConfig, WsConnection};
@@ -15,9 +15,18 @@ pub enum HttpOrWs<IO: AsyncRead + AsyncWrite + Unpin> {
     Ws(WsUpgradeRequest<IO>),
 }
 
+impl<IO: AsyncRead + AsyncWrite + Unpin + IsTls> IsTls for HttpOrWs<IO> {
+    fn is_tls(&self) -> bool {
+        match self {
+            HttpOrWs::Http(http) => http.is_tls(),
+            HttpOrWs::Ws(ws) => ws.is_tls(),
+        }
+    }
+}
+
 pub struct HttpOrWsIncoming<
-    IO: AsyncRead + AsyncWrite + Unpin,
-    T: Stream<Item = HttpRequest<IO>> + Unpin,
+    IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream,
+    T: Stream<Item = HttpRequest<IO>> + Unpin = TcpOrTlsIncoming,
 > {
     incoming: Option<T>,
 }
@@ -60,7 +69,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin, T: Stream<Item = HttpRequest<IO>> + Unp
         let response = upgrade_response(&request).unwrap();
         let (request_head, request_body) = request.into_parts();
         let request_head = RequestHead::from(request_head);
-        let transport = request_body.checkpoint().0;
+        let (_, transport) = request_body.into_inner();
         let response_head = ResponseHead::from(response);
         Poll::Ready(Some(HttpOrWs::Ws(WsUpgradeRequest {
             request_head,
@@ -82,6 +91,12 @@ pub struct WsUpgradeRequest<IO: AsyncRead + AsyncWrite + Unpin> {
     pub(crate) request_head: RequestHead<'static>,
     pub(crate) response_head: ResponseHead<'static>,
     pub(crate) transport: IO,
+}
+
+impl<IO: AsyncRead + AsyncWrite + Unpin + IsTls> IsTls for WsUpgradeRequest<IO> {
+    fn is_tls(&self) -> bool {
+        self.transport.is_tls()
+    }
 }
 
 impl<IO: AsyncRead + AsyncWrite + Unpin> WsUpgradeRequest<IO> {

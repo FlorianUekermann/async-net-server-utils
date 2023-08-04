@@ -1,6 +1,6 @@
 use crate::h1::HttpIncoming;
 use crate::tls::TlsIncoming;
-use crate::AcmeIncoming;
+use crate::{AcmeIncoming, TcpOrTlsIncoming};
 use async_io::{Async, ReadableOwned};
 use futures::prelude::*;
 use futures::stream::FusedStream;
@@ -70,6 +70,11 @@ impl TcpIncoming {
             .cache(DirCache::new(cache_dir))
             .directory_lets_encrypt(production);
         self.tls_acme(config)
+    }
+    pub fn or_tls(self) -> TcpOrTlsIncoming {
+        let mut tcp_or_tls = TcpOrTlsIncoming::new();
+        tcp_or_tls.push(self);
+        tcp_or_tls
     }
     pub fn http(self) -> HttpIncoming<TcpStream, Self> {
         HttpIncoming::new(self)

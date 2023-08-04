@@ -1,12 +1,14 @@
 mod acme;
 mod h1;
 mod tcp;
+mod tcp_or_tls;
 mod tls;
 mod ws;
 
 pub use acme::*;
 pub use h1::*;
 pub use tcp::*;
+pub use tcp_or_tls::*;
 pub use tls::*;
 pub use ws::*;
 

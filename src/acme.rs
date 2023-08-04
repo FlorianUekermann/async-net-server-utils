@@ -1,5 +1,5 @@
 use crate::tcp::TcpIncoming;
-use crate::{HttpIncoming, TcpStream, TlsStream};
+use crate::{HttpIncoming, TcpOrTlsIncoming, TcpStream, TlsStream};
 use futures::prelude::*;
 use futures::stream::FusedStream;
 use futures::StreamExt;
@@ -20,6 +20,11 @@ impl<EC: Debug, EA: Debug> AcmeIncoming<EC, EA> {
     }
     pub fn http(self) -> HttpIncoming<TlsStream, Self> {
         HttpIncoming::new(self)
+    }
+    pub fn or_tcp(self) -> TcpOrTlsIncoming {
+        let mut tcp_or_tls = TcpOrTlsIncoming::new();
+        tcp_or_tls.push(self);
+        tcp_or_tls
     }
 }
 
