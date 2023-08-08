@@ -10,7 +10,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub enum HttpOrWs<IO: AsyncRead + AsyncWrite + Unpin> {
+pub enum HttpOrWs<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     Http(HttpRequest<IO>),
     Ws(WsUpgradeRequest<IO>),
 }
