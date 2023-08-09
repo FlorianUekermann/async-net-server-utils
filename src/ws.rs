@@ -15,6 +15,7 @@ pub type WsMessageKind = async_ws::message::WsMessageKind;
 pub type WsSend<IO = TcpOrTlsStream> = async_ws::connection::WsSend<IO>;
 pub type WsConnectionError = async_ws::connection::WsConnectionError;
 pub type WsMessageReader<IO = TcpOrTlsStream> = async_ws::connection::WsMessageReader<IO>;
+pub type WsMessageWriter<IO = TcpOrTlsStream> = async_ws::connection::WsMessageWriter<IO>;
 
 pub enum HttpOrWs<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     Http(HttpRequest<IO>),
