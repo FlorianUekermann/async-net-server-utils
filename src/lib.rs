@@ -14,5 +14,6 @@ pub use ws::*;
 
 pub use async_http_codec;
 pub use async_net;
+pub use async_ws;
 pub use http;
 pub use rustls_acme;
