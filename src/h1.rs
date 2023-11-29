@@ -94,6 +94,14 @@ pub struct HttpRequest<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     pub(crate) transport: IO,
 }
 
+impl core::fmt::Debug for HttpRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Point")
+            .field("head", &self.head)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<IO: AsyncRead + AsyncWrite + Unpin + IsTls> IsTls for HttpRequest<IO> {
     fn is_tls(&self) -> bool {
         self.transport.is_tls()
@@ -217,6 +225,14 @@ pub struct HttpResponse<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     request_method: Method,
     head: ResponseHead<'static>,
     transport: IO,
+}
+
+impl core::fmt::Debug for HttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Point")
+            .field("head", &self.head)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<IO: AsyncRead + AsyncWrite + Unpin> HttpResponse<IO> {
