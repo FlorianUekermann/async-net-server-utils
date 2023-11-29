@@ -164,15 +164,33 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
         self.state.as_async_read(&mut self.transport)
     }
     /// Read whole body as [String]. See [Self::body] for details.
-    pub async fn body_string(&mut self) -> io::Result<String> {
+    pub async fn body_string(&mut self, limit: usize) -> io::Result<String> {
         let mut body = String::new();
-        self.body().read_to_string(&mut body).await?;
+        self.body()
+            .take(limit as u64)
+            .read_to_string(&mut body)
+            .await?;
+        if body.len() == limit && self.body().read(&mut [0u8]).await? > 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "body size exceeds limit",
+            ));
+        }
         Ok(body)
     }
     /// Read whole body as [Vec]. See [Self::body] for details.
-    pub async fn body_vec(&mut self) -> io::Result<Vec<u8>> {
+    pub async fn body_vec(&mut self, limit: usize) -> io::Result<Vec<u8>> {
         let mut body = Vec::new();
-        self.body().read_to_end(&mut body).await?;
+        self.body()
+            .take(limit as u64)
+            .read_to_end(&mut body)
+            .await?;
+        if body.len() == limit && self.body().read(&mut [0u8]).await? > 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "body size exceeds limit",
+            ));
+        }
         Ok(body)
     }
     /// Access the headers as [http::HeaderMap].

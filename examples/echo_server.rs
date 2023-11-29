@@ -49,7 +49,7 @@ async fn handle_http(mut req: HttpRequest<TcpStream>) -> anyhow::Result<()> {
         req.uri()
     );
 
-    let body = req.body_string().await?;
+    let body = req.body_string(10000).await?;
     log::info!("received request body with {} bytes", body.len());
 
     let resp = req.response().await?;
