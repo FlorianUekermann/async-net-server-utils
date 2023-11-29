@@ -211,7 +211,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> HttpRequest<IO> {
     }
 }
 
-pub struct HttpResponse<IO: AsyncRead + AsyncWrite + Unpin> {
+pub struct HttpResponse<IO: AsyncRead + AsyncWrite + Unpin = TcpOrTlsStream> {
     request_uri: Uri,
     request_headers: HeaderMap,
     request_method: Method,
