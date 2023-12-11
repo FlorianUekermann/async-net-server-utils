@@ -3,8 +3,9 @@ use crate::{HttpIncoming, TcpOrTlsIncoming, TcpStream};
 use futures::prelude::*;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::StreamExt;
+use rustls_acme::futures_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls_acme::futures_rustls::rustls::server::{Acceptor, ClientHello};
-use rustls_acme::futures_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_acme::futures_rustls::rustls::ServerConfig;
 use rustls_acme::futures_rustls::{Accept, LazyConfigAcceptor};
 use rustls_pemfile::Item;
 use std::io;
@@ -91,17 +92,19 @@ impl<F: FnMut(&ClientHello) -> Arc<ServerConfig>> FusedStream for TlsIncoming<F>
     }
 }
 
-pub fn parse_pem(pem: impl AsRef<[u8]>) -> io::Result<(Vec<Certificate>, PrivateKey)> {
+pub fn parse_pem(
+    pem: impl AsRef<[u8]>,
+) -> io::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
     let mut buf = pem.as_ref();
     let pem = rustls_pemfile::read_all(&mut buf)?;
 
     let (mut cert_chain, mut private_key) = (Vec::new(), None);
     for item in pem.into_iter() {
         match item {
-            Item::X509Certificate(b) => cert_chain.push(Certificate(b)),
+            Item::X509Certificate(b) => cert_chain.push(CertificateDer::from(b)),
             Item::RSAKey(v) | Item::PKCS8Key(v) | Item::ECKey(v) => {
                 if private_key.is_none() {
-                    private_key = Some(PrivateKey(v));
+                    private_key = Some(PrivatePkcs8KeyDer::from(v).into());
                 }
             }
             _ => {}

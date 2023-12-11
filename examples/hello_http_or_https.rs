@@ -2,7 +2,7 @@ use async_web_server::{parse_pem, HttpRequest, IsTls, TcpIncoming};
 use clap::Parser;
 use futures::prelude::*;
 use rcgen::{date_time_ymd, CertificateParams};
-use rustls_acme::futures_rustls::rustls::{Certificate, PrivateKey};
+use rustls_acme::futures_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use smol::future::block_on;
 use smol::spawn;
 use std::fs;
@@ -65,7 +65,9 @@ async fn handle_http(req: HttpRequest) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn generate_certificate(domains: impl Into<Vec<String>>) -> (Vec<Certificate>, PrivateKey) {
+fn generate_certificate(
+    domains: impl Into<Vec<String>>,
+) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
     let mut params = CertificateParams::new(domains);
     params.not_before = date_time_ymd(2000, 1, 1);
     params.not_after = date_time_ymd(3000, 1, 1);
@@ -75,7 +77,7 @@ fn generate_certificate(domains: impl Into<Vec<String>>) -> (Vec<Certificate>, P
     // file.write_all(cert_and_key.serialize_pem().unwrap().as_bytes()).unwrap();
     // file.sync_all().unwrap();
     (
-        vec![Certificate(cert_and_key.serialize_der().unwrap())],
-        PrivateKey(cert_and_key.serialize_private_key_der()),
+        vec![CertificateDer::from(cert_and_key.serialize_der().unwrap())],
+        PrivatePkcs8KeyDer::from(cert_and_key.serialize_private_key_der()).into(),
     )
 }

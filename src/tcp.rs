@@ -6,8 +6,9 @@ use futures::prelude::*;
 use futures::stream::FusedStream;
 use futures::FutureExt;
 use rustls_acme::caches::DirCache;
+use rustls_acme::futures_rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_acme::futures_rustls::rustls::server::ClientHello;
-use rustls_acme::futures_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_acme::futures_rustls::rustls::ServerConfig;
 use rustls_acme::AcmeConfig;
 use std::fmt::Debug;
 use std::io;
@@ -38,14 +39,13 @@ impl TcpIncoming {
     }
     pub fn tls(
         self,
-        cert_chain: Vec<Certificate>,
-        key_der: PrivateKey,
+        cert_chain: Vec<CertificateDer<'static>>,
+        key_der: PrivateKeyDer<'static>,
     ) -> Result<
         TlsIncoming<impl FnMut(&ClientHello) -> Arc<ServerConfig>>,
         rustls_acme::futures_rustls::rustls::Error,
     > {
         let config = ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert_chain, key_der)?;
         let config = Arc::new(config);

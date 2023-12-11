@@ -15,7 +15,7 @@ pub struct AcmeIncoming<EC: Debug + 'static, EA: Debug + 'static> {
 
 impl<EC: Debug, EA: Debug> AcmeIncoming<EC, EA> {
     pub fn new(tcp_incoming: TcpIncoming, config: AcmeConfig<EC, EA>) -> Self {
-        let incoming = config.incoming(TcpIncomingInfallible(tcp_incoming));
+        let incoming = config.incoming(TcpIncomingInfallible(tcp_incoming), vec![]);
         AcmeIncoming { incoming }
     }
     pub fn http(self) -> HttpIncoming<TlsStream, Self> {
